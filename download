@@ -1,0 +1,21 @@
+# Configuración local y credenciales
+.env
+.env.*
+!.env.example
+*_cred.json
+*.pem
+*.key
+
+# Registros y copias de la base de datos
+*.log
+*.sql
+!consultas/*.sql
+*.sql.gz
+*.sqlite
+*.sqlite3
+data/
+
+# Dependencias y estado de ejecución
+node_modules/
+.runtime/
+__pycache__/
