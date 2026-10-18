@@ -5,7 +5,7 @@ Source code and input prompt template accompanying the QUILLAMA manuscript.
 | File | Content |
 | --- | --- |
 | `quillama.json` | Node-RED source export of the QUILLAMA query service. |
-| `prompt-template.json` | Complete input prompt template for the NL-to-SQL stage, extracted from the supplied current code. |
+| `prompt-template.json` | Complete input prompt template for the NL-to-SQL stage, extracted from the current code. |
 
 The prompt placeholders are `{{USER_QUESTION}}`, `{{DB_SCHEMA}}` and `{{SQL_EXAMPLES_FIRST_12000_CHARS}}`.
 
