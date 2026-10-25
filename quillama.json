@@ -1,3 +1,35 @@
+    "z": "quillama_publication",
+    "name": "prepare_sql_prompt",
+    "func": "// Build msg.payload for Ollama (NL -> SQL)\n\nconst question = msg.userQuestion || '';\nconst schema   = global.get('dbSchema') || '';\nconst examples = global.get('sqlExamples') || '';\n\nconst MAX_EXAMPLES_CHARS = 12000;\nconst examplesSlice = examples.length > MAX_EXAMPLES_CHARS\n    ? examples.slice(0, MAX_EXAMPLES_CHARS)\n    : examples;\n\nmsg.headers = { 'Content-Type': 'application/json' };\n\nmsg.payload = {\n    model: 'qwen2.5-coder:14b',\n    stream: false,\n    options: {\n        temperature: 0,\n        num_ctx: 4096,\n        num_predict: 256\n    },\n    messages: [\n        {\n            role: 'system',\n            content:\n            `You are an expert MariaDB assistant. Your task is to convert questions\nin Spanish into SQL queries for the QDB database.\n\nIMPORTANT rules:\n- You may generate SELECT statements ONLY (no INSERT, UPDATE, DELETE, DROP, TRUNCATE, CREATE, ALTER, etc.).\n- Do NOT use SQL comments (--, /* */).\n- Do not add explanations, extra text, or Markdown formatting.\n- Return ONLY the query, on a single line, optionally ending with a semicolon.\n- Never invent new tables. ALWAYS use the 'lecturas' table (unless the examples show another real table).\n- Do not invent columns. Use only names that exist in the schema.\n\nQuick map of existing columns (lecturas table):\n- id, fecha\n- T1, H1, T2, H2, T3, H3, T4, H4, T5, H5\n- A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12\n- HA10  (misting unit/humidifier)\n- T, RH, HE, VPD, AH, DP, HI\n- T_OWM, RH_OWM\n- L     (light / illuminance)\n\nImportant synonyms (Spanish input terms, with English glosses):\n- \"luz\", \"luminosidad\", \"iluminación\" (light, brightness, illumination) => column L.\n- \"nebulizador\", \"humidificador\", \"nebu\" (misting unit, humidifier, abbreviated misting-unit term) => column HA10.\n- \"ventilador\", \"ventiladores\", \"efan\" (fan, fans, fan alias) => column A12.\n- \"extractores\" (extractors), in general => columns A1, A2, ..., A10 considered together.\n- \"clima adentro\" or \"clima interior\" (indoor climate) usually refers to T (and sometimes also RH).\n\nTemporal rules:\n- If the question refers to something \"ahora\", \"actual\", \"en este momento\" (now, current, at this moment),\n  or uses expressions such as \"¿cómo está ...?\" (what is ... like?) WITHOUT specifying a period\n  (today, yesterday, last week, last month, etc.), return the LATEST reading\n  using ORDER BY fecha DESC LIMIT 1.\n- If the question is \"¿cómo estuvo ... hoy/ayer/en la última semana/en el último mes?\"\n  (what was ... like today/yesterday/over the last week/over the last month?),\n  use aggregates (AVG, MIN, MAX) over the specified period.\n- If the question concerns a \"tendencia\" (trend), for example \"tendencia de luz\" (light trend)\n  or \"tendencia del VPD\" (VPD trend), returning multiple rows ordered by fecha is valid\n  so that another model can summarise the trend.\n\nRemember: ALWAYS use the lecturas table and these columns. Do not invent names such as\n'lecturas_extractores', 'nebulizador', 'estado_ventilador', etc.; map them to the columns above.`\n            },\n\n        {\n            role: 'system',\n            content:\n`Reference question/SQL library (templates). Whenever possible,\nadapt one of these templates to the user's question. Only if none fits,\ngenerate a new safe query.\n\n=== LIBRARY ===\n${examplesSlice}\n=== END OF LIBRARY ===`\n        },\n        {\n            role: 'system',\n            content:\n`Database schema/summary (if defined):\n\n${schema}`\n        },\n        {\n            role: 'user',\n            content:\n`User question:\n${question}\n\nInstructions:\n1) Determine whether the question matches any template.\n2) If it does, adapt that query (date range, N, actuator A#, etc.).\n3) Otherwise, generate a new query consistent with the database.\n4) Return exactly ONE safe SELECT statement.`\n        }\n    ]\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1100,
+    "y": 720,
+    "wires": [
+      [
+        "ollama_sql"
+      ]
+    ]
+  },
+  {
+    "id": "schema_filein",
+    "type": "file in",
+    "z": "quillama_publication",
+    "name": "load documented schema context",
+    "filename": "${QUILLAMA_SCHEMA_FILE}",
+    "filenameType": "str",
+    "format": "utf8",
+    "chunk": false,
+    "sendError": false,
+    "encoding": "none",
+    "allProps": false,
+    "x": 788,
+    "y": 620,
+    "wires": [
       [
         "schema_set_global"
       ]
