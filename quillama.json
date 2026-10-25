@@ -1,3 +1,483 @@
+[
+  {
+    "id": "quillama_publication",
+    "type": "tab",
+    "label": "QUILLAMA — English translation for inspection",
+    "disabled": false,
+    "info": "English translation of quillama.json for reviewer inspection. Comments, labels, human-readable messages and prompt text have been translated. Node IDs, wiring, database identifiers, context keys, environment-variable names, regular expressions and inference parameters are retained. Spanish input terms are retained where they are literal matching terms, with English glosses. This translation changes model-input text and has not been evaluated as a separate English-language configuration. It was not used to produce the reported S01–S54 results. See README.md for the original Spanish source and provenance limitations."
+  },
+  {
+    "id": "0572ddb3d6015273",
+    "type": "debug",
+    "z": "quillama_publication",
+    "name": "Lang",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1350,
+    "y": 440,
+    "wires": []
+  },
+  {
+    "id": "416f674380be7b13",
+    "type": "function",
+    "z": "quillama_publication",
+    "name": "mysql_guard",
+    "func": "// mysql_guard — separate successful results from MySQL-node errors\n\nfunction fail(reason) {\n    msg.payload = {\n        answer: '❌ Error executing the SQL query against the database: ' + reason,\n        columns: [],\n        rows: [],\n        sql: msg.sql || msg.topic || '',\n        via: msg.via || 'web',\n        suggestions: [\n            'Check that column names are correct (for example, L rather than Luz).',\n            'Rephrase the question with more detail.'\n        ]\n    };\n    return [null, msg]; // output 2 -> HTTP response\n}\n\n// Explicit error case: msg.error\nif (msg.error) {\n    return fail(msg.error.message || String(msg.error));\n}\n\n// Error case: payload is an Error or an unexpected value\nif (msg.payload instanceof Error) {\n    return fail(msg.payload.message || String(msg.payload));\n}\n\n// If payload is NOT an array (the normal MySQL-node result),\n// treat it as a generic error.\nif (!Array.isArray(msg.payload)) {\n    const p = msg.payload || {};\n    const reason = p.sqlMessage || p.message || JSON.stringify(p);\n    return fail(reason);\n}\n\n// Success case: msg.payload contains database rows (an array)\nreturn [msg, null];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1130,
+    "y": 520,
+    "wires": [
+      [
+        "prepare_narrative_prompt",
+        "adf00ae78abd5691"
+      ],
+      [
+        "ask_http_resp"
+      ]
+    ]
+  },
+  {
+    "id": "80450518a3fd2fb8",
+    "type": "mysql",
+    "z": "quillama_publication",
+    "mydb": "cfg_mariadb",
+    "name": "SELECT",
+    "x": 1140,
+    "y": 560,
+    "wires": [
+      [
+        "416f674380be7b13"
+      ]
+    ]
+  },
+  {
+    "id": "8059ca691f5d6c43",
+    "type": "debug",
+    "z": "quillama_publication",
+    "name": "/ask",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1350,
+    "y": 400,
+    "wires": []
+  },
+  {
+    "id": "8bf47cda9ed6b164",
+    "type": "debug",
+    "z": "quillama_publication",
+    "name": "ollama",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1350,
+    "y": 700,
+    "wires": []
+  },
+  {
+    "id": "about_fn",
+    "type": "function",
+    "z": "quillama_publication",
+    "name": "Build ABOUT JSON",
+    "func": "// Read identity settings from environment variables, with fallback defaults\nconst NAME     = env.get('ABOUT_NAME')     || 'QUILLAMA';\nconst VERSION  = env.get('ABOUT_VERSION')  || '0.1.0';\nconst OWNER    = env.get('ABOUT_OWNER')    || 'Quillaqua';\nconst MISSION  = (env.get('ABOUT_MISSION') || 'Greenhouse climate analyst. I summarise data, detect anomalies, and provide operational recommendations based on SQL readings.').trim();\nconst TONE     = (env.get('ABOUT_TONE')    || 'Clear, concise, and actionable.').trim();\nconst GUARDS   = (env.get('ABOUT_GUARDS')  || 'I do not invent values. I use only SQL data. If no data are available, I say so. I do not execute actions; I only provide recommendations.').trim();\n\nconst LLM_SQL     = env.get('LLM_MODEL')         || 'qwen2.5-coder:14b';\nconst LLM_SUMMARY = env.get('LLM_SUMMARY_MODEL') || 'qwen2.5:14b';\n\nconst APP_TZ   = env.get('APP_TZ')        || 'America/Guayaquil';\nconst APP_OFF  = env.get('APP_TZ_OFFSET') || '-05:00';\nconst ES_TZ    = env.get('ES_TZ')         || 'Europe/Madrid';\nconst ES_OFF   = env.get('ES_TZ_OFFSET')  || '+02:00';\n\n// Useful runtime information\nconst allowedTables = Array.from(new Set(flow.get('allowed_tables') || []));\n\nconst about = {\n  name: NAME,\n  version: VERSION,\n  owner: OWNER,\n  mission: MISSION,\n  tone: TONE,\n  safeguards: [GUARDS],\n  models: { sql_generator: LLM_SQL, summarizer: LLM_SUMMARY },\n  timezone: { app: APP_TZ, offset: APP_OFF, alt: { es: ES_TZ, offset: ES_OFF } },\n  data: { tables_allowed: allowedTables },\n  endpoints: [\n    { method:'POST', path:'/ask',    body:'{ question: \"…\" }' },\n    { method:'GET',  path:'/about' }\n  ],\n  samples: [\n    'about',\n    'Who are you?',\n    'What happened to AH between 09:00 and 10:00 on 21/03/2025?',\n    'Suggestions now',\n    'T+RH trend over the last 50 readings'\n  ]\n};\n\nmsg.headers = { 'Content-Type': 'application/json; charset=utf-8' };\nmsg.payload = { ok:true, about, now: new Date().toISOString() };\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1390,
+    "y": 800,
+    "wires": [
+      [
+        "about_http_out"
+      ]
+    ]
+  },
+  {
+    "id": "about_http_in",
+    "type": "http in",
+    "z": "quillama_publication",
+    "name": "GET /about",
+    "url": "/about",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 1390,
+    "y": 760,
+    "wires": [
+      [
+        "about_fn"
+      ]
+    ]
+  },
+  {
+    "id": "about_http_out",
+    "type": "http response",
+    "z": "quillama_publication",
+    "name": "OK /about",
+    "statusCode": "",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8"
+    },
+    "x": 1420,
+    "y": 840,
+    "wires": []
+  },
+  {
+    "id": "adf00ae78abd5691",
+    "type": "debug",
+    "z": "quillama_publication",
+    "name": "Database rows",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1360,
+    "y": 520,
+    "wires": []
+  },
+  {
+    "id": "ask_entry",
+    "type": "function",
+    "z": "quillama_publication",
+    "name": "ask_entry",
+    "func": "// ask_entry\n// - Read msg.payload.question (a string).\n// - If it is missing, return a structured error.\n// - If the question asks about identity or capabilities,\n//   reply directly without passing through SQL.\n\nlet q = '';\n\n// 1) Extract the question\nif (msg.payload && typeof msg.payload === 'object' && msg.payload.question) {\n    q = String(msg.payload.question).trim();\n} else if (typeof msg.payload === 'string') {\n    // Alternative: allow the request body to be a plain string\n    q = msg.payload.trim();\n}\n\n// 2) Return an error if no question is supplied\nif (!q) {\n    msg.payload = {\n        answer: '❌ The \"question\" field is missing from the POST /ask body.',\n        columns: [],\n        rows: [],\n        sql: '',\n        via: 'web',\n        suggestions: [\n            'Example: {\"question\":\"How many records are there today?\"}'\n        ]\n    };\n    // output 2 -> HTTP response\n    return [null, msg];\n}\n\n// 3) Determine the channel (web / telegram / etc.)\nif (msg.payload && typeof msg.payload === 'object' && msg.payload.via) {\n    msg.via = String(msg.payload.via);\n} else {\n    msg.via = msg.via || 'web';\n}\n\n// 4) Normalise the question to detect the ABOUT intent\nconst qNorm = q\n    .toLowerCase()\n    .normalize('NFD')                // remove accents\n    .replace(/[\\u0300-\\u036f]/g, ''); \n\nconst isAbout =\n    /quien eres\\??/.test(qNorm) || // Spanish: who are you?\n    /qu[eé] eres\\??/.test(qNorm) || // Spanish: what are you?\n    /que puedes hacer\\??/.test(qNorm) || // Spanish: what can you do?\n    /ayuda/.test(qNorm) || // Spanish: help\n    /\\babout\\b/.test(qNorm) ||\n    /\\bwho are you\\b/.test(qNorm) ||          \n    /\\bwhat can you do\\b/.test(qNorm) ||      \n    /\\bhelp\\b/.test(qNorm);                   \n\n// 4.1) Detect the user language using a simple heuristic\nfunction detectLang(text) {\n  const t = (text || '').toLowerCase();\n\n  // Strong Spanish-language cues; retain the original Spanish matching terms\n  const hasEsChars = /[áéíóúñ¿¡]/.test(t);\n  const esHits = (t.match(/\\b(el|la|los|las|de|que|como|cómo|hoy|ayer|últim[oa]s?|promedio|temperatura|humedad|luz)\\b/g) || []).length;\n\n  // Strong English-language cues\n    const enHits = (t.match(/\\b(the|what|how|who|are|you|help|about|today|yesterday|last|average|temperature|humidity|light)\\b/g) || []).length;\n\n\n  if (hasEsChars || esHits > enHits) return 'es';\n  if (enHits > esHits) return 'en';\n  return 'es'; // Fallback: Spanish is the original system language\n}\n\nmsg.userLang = detectLang(q);\n\n\n// 5) Reply directly to identity/capability questions\nif (isAbout) {\n    const NAME    = env.get('ABOUT_NAME')    || 'QUILLAMA';\n    const VERSION = env.get('ABOUT_VERSION') || '0.1.0';\n    const OWNER   = env.get('ABOUT_OWNER')   || 'Quillaqua';\n\n    const lang = (msg.userLang || 'es').toLowerCase();\n\n    const MISSION = (env.get('ABOUT_MISSION') || \n        'Greenhouse climate analyst: I read the readings table, ' +\n        'summarise the state, detect trends, and suggest actions.'\n    ).trim();\n\n    const TONE = (env.get('ABOUT_TONE') || \n        'Clear, concise, and actionable.'\n    ).trim();\n\n    msg.payload = {\n        answer: (lang === 'en')\n            ? `I'm ${NAME}, a data assistant for your greenhouse.\n\n            • Version: ${VERSION}\n            • Owner: ${OWNER}\n            • Mission: ${MISSION}\n\n            I read climate and actuator data from the database (table \"lecturas\"),\n            turn your questions into safe SQL queries, and explain the results in plain language.\n\n            I don't control the hardware directly: I only provide recommendations based on the data.\n            My style is: ${TONE}`\n                    : `I'm ${NAME}, a data assistant for your greenhouse.\n\n            • Version: ${VERSION}\n            • Owner: ${OWNER}\n            • Mission: ${MISSION}\n\n            I read climate and actuator data from the database (table \"lecturas\"),\n            turn your questions into safe SQL queries, and explain the results in plain language.\n\n            I don't control the hardware directly: I only provide recommendations based on the data.\n            My style is: ${TONE}`,\n\n        columns: [],\n        rows: [],\n        sql: '',          // no SQL is used in this reply\n        via: msg.via,\n        suggestions: [\n            'Average T over the last 30 minutes',\n            'T and RH trend over the last 50 readings',\n            'What has VPD been like over the last hour?',\n            'Which actuators were activated most often today?'\n        ]\n    };\n\n    // output 2 -> direct HTTP response\n    return [null, msg];\n}\n\n// 6) Normal case: save the question and continue to the NL→SQL flow\nmsg.userQuestion = q;\nreturn [msg, null];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1140,
+    "y": 760,
+    "wires": [
+      [
+        "prepare_sql_prompt"
+      ],
+      [
+        "ask_http_resp"
+      ]
+    ]
+  },
+  {
+    "id": "ask_http_in",
+    "type": "http in",
+    "z": "quillama_publication",
+    "name": "HTTP IN /ask",
+    "url": "/ask",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 1130,
+    "y": 840,
+    "wires": [
+      [
+        "ask_json"
+      ]
+    ]
+  },
+  {
+    "id": "ask_http_resp",
+    "type": "http response",
+    "z": "quillama_publication",
+    "name": "HTTP RESP /ask",
+    "statusCode": "",
+    "headers": {},
+    "x": 1397,
+    "y": 643,
+    "wires": []
+  },
+  {
+    "id": "ask_json",
+    "type": "json",
+    "z": "quillama_publication",
+    "name": "parse body",
+    "property": "payload",
+    "action": "obj",
+    "pretty": false,
+    "x": 1130,
+    "y": 800,
+    "wires": [
+      [
+        "ask_entry"
+      ]
+    ]
+  },
+  {
+    "id": "build_response",
+    "type": "function",
+    "z": "quillama_publication",
+    "name": "build_response",
+    "func": "// Package the final response for the UI / Telegram\n\nlet content = '';\n\nif (msg.payload && msg.payload.message && typeof msg.payload.message.content === 'string') {\n    content = msg.payload.message.content;\n} else if (typeof msg.payload === 'string') {\n    content = msg.payload;\n}\n\nconst answer = (content || '').trim() || 'No response from the AI.';\n\nconst rows = msg.rows || [];\nconst columns = msg.columns || [];\nconst sql = msg.sql || msg.topic || '';\n\nmsg.payload = {\n    answer: answer,\n    columns: columns,\n    rows: rows,\n    sql: sql,\n    via: msg.via || 'web',\n    suggestions: [] // currently empty; the UI may generate suggestions\n    // quillama: null\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1120,
+    "y": 400,
+    "wires": [
+      [
+        "ask_http_resp",
+        "8059ca691f5d6c43"
+      ]
+    ]
+  },
+  {
+    "id": "cfg_mariadb",
+    "type": "MySQLdatabase",
+    "name": "mariadb",
+    "host": "${DB_HOST}",
+    "port": "${DB_PORT}",
+    "db": "${DB_NAME}",
+    "tz": "${DB_TIMEZONE}",
+    "charset": "UTF8_GENERAL_CI",
+    "credentials": {
+      "user": "${DB_USER}",
+      "password": "${DB_PASSWORD}"
+    }
+  },
+  {
+    "id": "dbg_schema",
+    "type": "debug",
+    "z": "quillama_publication",
+    "name": "Schema",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 140,
+    "y": 560,
+    "wires": []
+  },
+  {
+    "id": "extract_validate_sql",
+    "type": "function",
+    "z": "quillama_publication",
+    "name": "extract_validate_sql",
+    "func": "// Receive the Ollama reply and place the single SELECT statement passing validation in msg.sql.\n// On failure, construct an error reply and use output 2.\n\nfunction fail(reason, sqlText) {\n    msg.payload = {\n        answer: '❌ Could not generate a safe SQL query: ' + reason,\n        columns: [],\n        rows: [],\n        sql: sqlText || '',\n        via: msg.via || 'web',\n        suggestions: [\n            'Rephrase the question with more detail.',\n            'Ask to see the SQL query directly.'\n        ]\n    };\n    return [null, msg]; // output 2 -> HTTP response\n}\n\nlet content = '';\n\nif (msg.payload && msg.payload.message && typeof msg.payload.message.content === 'string') {\n    content = msg.payload.message.content;\n} else if (typeof msg.payload === 'string') {\n    content = msg.payload;\n}\n\nif (!content) {\n    return fail('empty model response.', '');\n}\n\n// Remove Markdown code fences\nlet sql = content.replace(/```sql/gi, '')\n                 .replace(/```/g, '')\n                 .trim();\n\n// Collapse whitespace\nsql = sql.replace(/\\s+/g, ' ').trim();\n\n// Correction for the light column:\n// The database has no Luz column; greenhouse light is stored in L.\n// If the model uses Luz (Spanish for light) as an identifier, replace it with L.\nsql = sql.replace(/\\bLuz\\b/gi, 'L');\n\nif (!sql) {\n    return fail('empty response after cleaning.', '');\n}\n\nif (!/^select\\b/i.test(sql)) {\n    return fail('the query does not begin with SELECT.', sql);\n}\n\n// Split on ';'\nconst statements = sql.split(';').map(s => s.trim()).filter(Boolean);\nif (statements.length !== 1) {\n    return fail('multiple statements were detected; only one is allowed.', sql);\n}\n\n// Block the defined prohibited keywords\nconst forbidden = /\\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|CREATE|ALTER|GRANT|REVOKE)\\b/i;\nif (forbidden.test(sql)) {\n    return fail('prohibited SQL keywords were detected (INSERT/UPDATE/DELETE, etc.).', sql);\n}\n\n// SQL accepted by the implemented validator\nmsg.sql = sql;\nmsg.topic = sql; // for the mysql node\n\nreturn [msg, null];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1100,
+    "y": 620,
+    "wires": [
+      [
+        "80450518a3fd2fb8",
+        "fbafdc93d60c27bd"
+      ],
+      [
+        "ask_http_resp"
+      ]
+    ]
+  },
+  {
+    "id": "fbafdc93d60c27bd",
+    "type": "debug",
+    "z": "quillama_publication",
+    "name": "Generated SQL",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "sql",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1380,
+    "y": 580,
+    "wires": []
+  },
+  {
+    "id": "fn_render_schema",
+    "type": "function",
+    "z": "quillama_publication",
+    "name": "Render schema and update context",
+    "func": "const rows = msg.payload || [];\n\n// 1) Group columns by table\nconst byTable = {};\nfor (const r of rows) {\n    const t = r.TABLE_NAME;\n    if (!byTable[t]) byTable[t] = [];\n    byTable[t].push({\n        name: r.COLUMN_NAME,\n        type: r.DATA_TYPE\n    });\n}\n\n// 2) Build the schema text for the LLM\nlet lines = [];\nlines.push(\"QDB database schema:\");\nfor (const table of Object.keys(byTable).sort()) {\n    lines.push(`\\nTable ${table}:`);\n    for (const col of byTable[table]) {\n        lines.push(`- ${col.name} (${col.type})`);\n    }\n}\n\n// Store the schema in global context\nconst schemaText = lines.join(\"\\n\");\nglobal.set(\"dbSchema\", schemaText);\n\n// 3) Retain the existing allowed_tables context update\nconst present = new Set(rows.map(r => r.TABLE_NAME));\nconst strict = new Set(flow.get(\"allowed_tables\") || [\n  \"lecturas\",\"actuators\",\"nutrient_readings\",\"system_events\",\n  \"v_current_status\",\"v_last_24h\",\"v_alarms\",\"v_energy_security\"\n]);\nflow.set(\"allowed_tables\", [...[...strict].filter(t => present.has(t))]);\n\n// Optionally display status information on the node\nnode.status({ text: \"Schema: \" + Array.from(present).join(\", \") });\n\n// Pass msg through so that the debug node can inspect the rows\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 170,
+    "y": 600,
+    "wires": [
+      [
+        "dbg_schema"
+      ]
+    ]
+  },
+  {
+    "id": "fn_schema_query",
+    "type": "function",
+    "z": "quillama_publication",
+    "name": "Build schema query",
+    "func": "const DB = env.get('DB_NAME') || 'QDB';\nmsg.topic = `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE\n             FROM information_schema.COLUMNS\n             WHERE TABLE_SCHEMA = '${DB}'\n             ORDER BY TABLE_NAME, ORDINAL_POSITION;`;\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 140,
+    "y": 680,
+    "wires": [
+      [
+        "mysql_schema"
+      ]
+    ]
+  },
+  {
+    "id": "inj_schema",
+    "type": "inject",
+    "z": "quillama_publication",
+    "name": "10",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "600",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 2,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 130,
+    "y": 720,
+    "wires": [
+      [
+        "fn_schema_query"
+      ]
+    ]
+  },
+  {
+    "id": "mysql_schema",
+    "type": "mysql",
+    "z": "quillama_publication",
+    "mydb": "cfg_mariadb",
+    "name": "Read schema",
+    "x": 130,
+    "y": 640,
+    "wires": [
+      [
+        "fn_render_schema"
+      ]
+    ]
+  },
+  {
+    "id": "ollama_narrative",
+    "type": "http request",
+    "z": "quillama_publication",
+    "name": "Ollama narrative",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "${OLLAMA_CHAT_URL}",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": true,
+    "headers": [],
+    "x": 1120,
+    "y": 440,
+    "wires": [
+      [
+        "build_response",
+        "0572ddb3d6015273"
+      ]
+    ]
+  },
+  {
+    "id": "ollama_sql",
+    "type": "http request",
+    "z": "quillama_publication",
+    "name": "Ollama SQL",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "${OLLAMA_CHAT_URL}",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": true,
+    "headers": [],
+    "x": 1130,
+    "y": 660,
+    "wires": [
+      [
+        "extract_validate_sql",
+        "8bf47cda9ed6b164"
+      ]
+    ]
+  },
+  {
+    "id": "prepare_narrative_prompt",
+    "type": "function",
+    "z": "quillama_publication",
+    "name": "prepare_narrative_prompt",
+    "func": "const rows = Array.isArray(msg.payload) ? msg.payload : [];\nconst sql = msg.sql || msg.topic || '';\nconst question = msg.userQuestion || '';\n\nconst columns = rows.length ? Object.keys(rows[0]) : [];\nmsg.rows = rows;\nmsg.columns = columns;\n\nconst MAX_ROWS_PREVIEW = 50;\nconst previewRows = rows.slice(0, MAX_ROWS_PREVIEW);\n\nmsg.headers = { 'Content-Type': 'application/json' };\n\n// Language must already be set, ideally by ask_entry\nconst lang = (msg.userLang || 'es').toLowerCase();\n\nconst systemPrompt = (lang === 'en')\n    ? `You are a data assistant who explains SQL query results to non-technical users.\n\nInstructions:\n- ALWAYS respond in English.\n- Be direct: explain what the values mean (average, min, max, and whether it goes up, down, or stays stable).\n- Do not talk about data formats (JSON, rows, records, columns, etc.) unless the user explicitly asks.\n- If you see columns like vpd_min, vpd_max, vpd_avg (or similar), summarize the range and say if it looks stable or variable.\n- If there is only one average value (e.g., clima_avg_today, light_avg_today, temp_avg_last_hour), give a short explanation of that value.\n- If the result is empty, simply say no data was found for the requested period.`\n    : `You are a data assistant who explains SQL query results to non-technical users.\n\nInstructions:\n- ALWAYS respond in neutral Spanish.\n- Be direct: explain what the values mean (average, minimum, maximum, and whether they increase, decrease, or remain stable).\n- Do not discuss data formats (JSON, rows, records, columns, etc.) unless the user explicitly asks.\n- If you see columns such as vpd_min, vpd_max, vpd_prom (or similar), summarise the range and indicate whether it appears stable or variable.\n- If there is only one average value (for example clima_prom_hoy, luz_promedio_hoy, temperatura_promedio_ultima_hora), give a short explanation of that value.\n- If the result is empty, simply state that no data were found for the requested period.`;\n\nconst userBlock = (lang === 'en')\n    ? `Original user question:\n${question}\n\nExecuted SQL query:\n${sql}\n\nFirst ${previewRows.length} results in JSON:\n${JSON.stringify(previewRows, null, 2)}\n\nTotal rows: ${rows.length}`\n    : `Original user question:\n${question}\n\nExecuted SQL query:\n${sql}\n\nFirst ${previewRows.length} results in JSON:\n${JSON.stringify(previewRows, null, 2)}\n\nTotal rows: ${rows.length}`;\n\nmsg.payload = {\n    model: 'qwen2.5:14b',\n    stream: false,\n    options: {\n        temperature: 0,     // encourages adherence to the requested language\n        num_ctx: 1024,\n        num_predict: 220\n    },\n    messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userBlock }\n    ]\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1090,
+    "y": 480,
+    "wires": [
+      [
+        "ollama_narrative"
+      ]
+    ]
+  },
+  {
+    "id": "prepare_sql_prompt",
+    "type": "function",
     "z": "quillama_publication",
     "name": "prepare_sql_prompt",
     "func": "// Build msg.payload for Ollama (NL -> SQL)\n\nconst question = msg.userQuestion || '';\nconst schema   = global.get('dbSchema') || '';\nconst examples = global.get('sqlExamples') || '';\n\nconst MAX_EXAMPLES_CHARS = 12000;\nconst examplesSlice = examples.length > MAX_EXAMPLES_CHARS\n    ? examples.slice(0, MAX_EXAMPLES_CHARS)\n    : examples;\n\nmsg.headers = { 'Content-Type': 'application/json' };\n\nmsg.payload = {\n    model: 'qwen2.5-coder:14b',\n    stream: false,\n    options: {\n        temperature: 0,\n        num_ctx: 4096,\n        num_predict: 256\n    },\n    messages: [\n        {\n            role: 'system',\n            content:\n            `You are an expert MariaDB assistant. Your task is to convert questions\nin Spanish into SQL queries for the QDB database.\n\nIMPORTANT rules:\n- You may generate SELECT statements ONLY (no INSERT, UPDATE, DELETE, DROP, TRUNCATE, CREATE, ALTER, etc.).\n- Do NOT use SQL comments (--, /* */).\n- Do not add explanations, extra text, or Markdown formatting.\n- Return ONLY the query, on a single line, optionally ending with a semicolon.\n- Never invent new tables. ALWAYS use the 'lecturas' table (unless the examples show another real table).\n- Do not invent columns. Use only names that exist in the schema.\n\nQuick map of existing columns (lecturas table):\n- id, fecha\n- T1, H1, T2, H2, T3, H3, T4, H4, T5, H5\n- A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12\n- HA10  (misting unit/humidifier)\n- T, RH, HE, VPD, AH, DP, HI\n- T_OWM, RH_OWM\n- L     (light / illuminance)\n\nImportant synonyms (Spanish input terms, with English glosses):\n- \"luz\", \"luminosidad\", \"iluminación\" (light, brightness, illumination) => column L.\n- \"nebulizador\", \"humidificador\", \"nebu\" (misting unit, humidifier, abbreviated misting-unit term) => column HA10.\n- \"ventilador\", \"ventiladores\", \"efan\" (fan, fans, fan alias) => column A12.\n- \"extractores\" (extractors), in general => columns A1, A2, ..., A10 considered together.\n- \"clima adentro\" or \"clima interior\" (indoor climate) usually refers to T (and sometimes also RH).\n\nTemporal rules:\n- If the question refers to something \"ahora\", \"actual\", \"en este momento\" (now, current, at this moment),\n  or uses expressions such as \"¿cómo está ...?\" (what is ... like?) WITHOUT specifying a period\n  (today, yesterday, last week, last month, etc.), return the LATEST reading\n  using ORDER BY fecha DESC LIMIT 1.\n- If the question is \"¿cómo estuvo ... hoy/ayer/en la última semana/en el último mes?\"\n  (what was ... like today/yesterday/over the last week/over the last month?),\n  use aggregates (AVG, MIN, MAX) over the specified period.\n- If the question concerns a \"tendencia\" (trend), for example \"tendencia de luz\" (light trend)\n  or \"tendencia del VPD\" (VPD trend), returning multiple rows ordered by fecha is valid\n  so that another model can summarise the trend.\n\nRemember: ALWAYS use the lecturas table and these columns. Do not invent names such as\n'lecturas_extractores', 'nebulizador', 'estado_ventilador', etc.; map them to the columns above.`\n            },\n\n        {\n            role: 'system',\n            content:\n`Reference question/SQL library (templates). Whenever possible,\nadapt one of these templates to the user's question. Only if none fits,\ngenerate a new safe query.\n\n=== LIBRARY ===\n${examplesSlice}\n=== END OF LIBRARY ===`\n        },\n        {\n            role: 'system',\n            content:\n`Database schema/summary (if defined):\n\n${schema}`\n        },\n        {\n            role: 'user',\n            content:\n`User question:\n${question}\n\nInstructions:\n1) Determine whether the question matches any template.\n2) If it does, adapt that query (date range, N, actuator A#, etc.).\n3) Otherwise, generate a new query consistent with the database.\n4) Return exactly ONE safe SELECT statement.`\n        }\n    ]\n};\n\nreturn msg;\n",
