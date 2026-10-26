@@ -1,19 +1,25 @@
 # QUILLAMA
 
-Source code and input prompt template accompanying the QUILLAMA manuscript.
+Source code and input prompt templates accompanying the QUILLAMA manuscript.
 
 | File | Content |
 | --- | --- |
-| `quillama.json` | Node-RED source export of the QUILLAMA query service. |
-| `prompt-template.json` | Complete input prompt template for the NL-to-SQL stage, extracted from the current code. |
+| `quillama.json` | Spanish Node-RED source export of the QUILLAMA query service. |
+| `prompt-template.json` | Complete Spanish input prompt template for the NL-to-SQL stage, extracted from the supplied flow. |
+| `quillama.en.json` | English translation of the supplied flow for inspection. |
+| `prompt-template.en.json` | English translation of the input prompt template for inspection. |
 
 The prompt placeholders are `{{USER_QUESTION}}`, `{{DB_SCHEMA}}` and `{{SQL_EXAMPLES_FIRST_12000_CHARS}}`.
 
-For execution, import the flow into Node-RED with `node-red-node-mysql` installed, and configure the MariaDB connection, Ollama endpoint and local resource-file paths referenced by the flow. This is a source-code export for inspection, not a self-contained deployment package.
+## Code provenance and reproducibility
 
-The files describe the current supplied configuration; they are not asserted to be a frozen snapshot of the original S01-S54 executions.
+The Spanish files describe the currently supplied configuration. They are not asserted to be a frozen snapshot of the configuration used for the original S01–S54 executions. The English files were prepared to facilitate inspection and were not used to produce the reported experimental results. Translating prompt instructions may affect model outputs.
 
-The original operational database is not included. Its supplied registration identifiers are certificate **QUI-073079**, application **SENADI-2026-66205**.
+Appendix A preserves the original generated SQL statements and recorded technical outcomes, with English translations of the input questions. Appendix B provides the semantic dimension codes, overall classifications and rationale for each of the 32 operational cases. These materials support inspection of the historical results without regenerating the SQL.
+
+To execute the Spanish flow, import `quillama.json` into Node-RED with `node-red-node-mysql` installed. Configure the MariaDB connection, Ollama endpoint and models specified in the flow. Supply the local schema-context and SQL-example files referenced by `QUILLAMA_SCHEMA_FILE` and `QUILLAMA_EXAMPLES_FILE`. This source export requires local configuration and auxiliary resources; it is not a self-contained deployment package.
+
+The original operational database is not included in the public release. Its supplied registration identifiers are certificate **QUI-073079**, application **SENADI-2026-66205**.
 
 ## Semantic similarity assessment
 
